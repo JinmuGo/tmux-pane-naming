@@ -289,7 +289,7 @@ detect_name_by_llm() {
     local content="$1"
 
     if [ -z "$MODEL" ]; then
-        MODEL=$(tmux show-option -gqv "@pane-naming-model")
+        MODEL=$(tmux show-option -gqv "@sentinel-model")
     fi
     if [ -z "$MODEL" ]; then
         MODEL="qwen2.5:0.5b"
