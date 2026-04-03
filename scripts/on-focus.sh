@@ -10,4 +10,4 @@ if [ "$manual" = "1" ]; then
 fi
 
 # Run auto-name with auto-trigger flag (suppresses display-message)
-AUTO_TRIGGER=1 "$SCRIPT_DIR/auto-name.sh" --pattern-only &
+AUTO_TRIGGER=1 "$SCRIPT_DIR/auto-name.sh" --no-llm &

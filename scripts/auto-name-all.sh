@@ -5,9 +5,9 @@
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-MODEL_ARG=""
-if [ "$1" = "-m" ]; then
-    MODEL_ARG="-m $2"
+model_args=()
+if [ "$1" = "-m" ] && [ -n "$2" ]; then
+    model_args=(-m "$2")
 fi
 
 # Get all panes
@@ -19,7 +19,7 @@ tmux list-panes -a -F '#{pane_id}' | while read -r pane_id; do
     fi
 
     # auto-name.sh handles fingerprint check internally
-    AUTO_TRIGGER=1 "$SCRIPT_DIR/auto-name.sh" -t "$pane_id" $MODEL_ARG &
+    AUTO_TRIGGER=1 "$SCRIPT_DIR/auto-name.sh" -t "$pane_id" "${model_args[@]}" &
 done
 
 wait
