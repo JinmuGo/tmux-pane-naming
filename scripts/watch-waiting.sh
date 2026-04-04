@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Background daemon that periodically scans all panes for input-waiting state.
 # Sets per-pane @pane_waiting and per-window @window_waiting options.
-# When a pane transitions to waiting, optionally rings the tmux bell.
+# When a pane transitions to waiting, rings the tmux bell and highlights the border.
 #
 # Usage: watch-waiting.sh [interval_seconds]
 # Stop:  tmux set-environment -g -u SENTINEL_WAITING_PID
@@ -18,8 +18,10 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-# Check if bell notification is enabled
+# Read config once at startup
 bell_enabled=$(tmux show-option -gqv "@sentinel-waiting-bell" 2>/dev/null)
+waiting_bg=$(tmux show-option -gqv "@sentinel-waiting-bg" 2>/dev/null)
+[ -z "$waiting_bg" ] && waiting_bg="#e0af68"
 
 while true; do
     # Check if we should stop (PID mismatch = replaced by newer instance)
@@ -39,13 +41,24 @@ while true; do
         # Check new state
         curr=$(tmux display-message -p -t "$pane_id" '#{@pane_waiting}' 2>/dev/null)
 
-        # Transition: not-waiting → waiting → ring bell on the window
-        if [ -z "$prev" ] && [ -n "$curr" ] && [ "$bell_enabled" != "off" ]; then
-            # Write BEL to the pane's tty to trigger tmux's monitor-bell
-            pane_tty=$(tmux display-message -p -t "$pane_id" '#{pane_tty}' 2>/dev/null)
-            if [ -n "$pane_tty" ] && [ -e "$pane_tty" ]; then
-                printf '\a' > "$pane_tty" 2>/dev/null
+        # Transition: not-waiting → waiting
+        if [ -z "$prev" ] && [ -n "$curr" ]; then
+            # Ring bell to trigger window tab alert
+            if [ "$bell_enabled" != "off" ]; then
+                pane_tty=$(tmux display-message -p -t "$pane_id" '#{pane_tty}' 2>/dev/null)
+                if [ -n "$pane_tty" ] && [ -e "$pane_tty" ]; then
+                    printf '\a' > "$pane_tty" 2>/dev/null
+                fi
             fi
+            # Highlight pane border with warning color
+            tmux set-option -p -t "$pane_id" pane-active-border-style "fg=${waiting_bg}" 2>/dev/null
+            tmux set-option -p -t "$pane_id" pane-border-style "fg=${waiting_bg}" 2>/dev/null
+        fi
+
+        # Transition: waiting → not-waiting → reset border
+        if [ -n "$prev" ] && [ -z "$curr" ]; then
+            tmux set-option -p -t "$pane_id" -u pane-active-border-style 2>/dev/null
+            tmux set-option -p -t "$pane_id" -u pane-border-style 2>/dev/null
         fi
     done < <(tmux list-panes -a -F '#{pane_id}	#{session_name}:#{window_index}' 2>/dev/null)
 

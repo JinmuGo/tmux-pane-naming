@@ -36,10 +36,9 @@ _get_process() {
 }
 
 _capture() {
-    local lines="${1:-15}"
-    local args=(-p -l "$lines")
+    local args=(-p)
     [ -n "$TARGET" ] && args+=(-t "$TARGET")
-    tmux capture-pane "${args[@]}" 2>/dev/null
+    tmux capture-pane "${args[@]}" 2>/dev/null | tail -30
 }
 
 # ─── Detection ───
@@ -47,18 +46,34 @@ _capture() {
 detect_claude_waiting() {
     local content="$1"
 
-    # Claude Code shows "-- INSERT --" or "-- NORMAL --" only when at the
-    # input prompt. While generating or running tools, these are NOT visible.
-    if echo "$content" | grep -qE -- "-- INSERT --|-- NORMAL --"; then
-        # Distinguish permission prompts from regular input
-        if echo "$content" | grep -qiE "Allow|Deny|approve|reject"; then
-            echo "permission"
-        else
-            echo "input"
-        fi
+    # Must have the mode indicator to be a Claude Code UI
+    if ! echo "$content" | grep -qE -e "-- INSERT" -e "-- NORMAL"; then
+        return 1
+    fi
+
+    # Find the ❯ prompt line and check what's immediately above it.
+    # When Claude is actively working, the line above ❯ shows activity:
+    #   ✻ Thinking…  ✻ Tinkering…  ⏺ Running…  ✳ Meandering…
+    # When idle/HITL, the line above ❯ is a ─── separator or empty.
+    local above_prompt
+    above_prompt=$(echo "$content" | grep -B5 '^❯' | head -5)
+
+    # Active work: indicator with ellipsis (…) means in-progress
+    # e.g. "✻ Thinking…" "⏺ Running…" "✶ Cerebrating… (1m)"
+    # Completed: no ellipsis, e.g. "✻ Brewed for 3m 44s" → still HITL
+    if echo "$above_prompt" | grep -qE '^[✻⏺✳✶☐◇◆●⚙∗] .*…'; then
+        return 1  # actively working, not waiting
+    fi
+
+    # Permission/tool approval prompts
+    if echo "$content" | grep -qE "^[[:space:]]*(Allow|Deny|Yes|No)[[:space:]]" \
+        || echo "$content" | grep -qiE "Do you want to|Would you like to|approve this"; then
+        echo "permission"
         return 0
     fi
-    return 1
+
+    echo "input"
+    return 0
 }
 
 detect_aider_waiting() {

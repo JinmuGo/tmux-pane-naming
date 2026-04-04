@@ -49,13 +49,21 @@ tmux set-option -g pane-border-status "$border_status"
 tmux set-option -g pane-border-format "#{?@pane_name,#{?@pane_waiting,#{E:@sentinel-fmt-waiting},#{E:@sentinel-fmt-normal}},}"
 
 # ─── Window status bar waiting indicator ───
-# Prepend waiting icon to window-status-format so it's visible from any window
+# When a window has a pane waiting for input, prepend a small marker to the window name.
+# Replace #W with #{?@window_waiting,* #W,#W} in both formats.
 if [ "$waiting_mode" != "off" ]; then
+    waiting_marker=$(get_tmux_option "@sentinel-waiting-marker" "*")
+
     current_ws_fmt=$(tmux show-option -gv window-status-format 2>/dev/null)
-    # Only inject once (idempotent)
     if ! echo "$current_ws_fmt" | grep -q "@window_waiting"; then
-        tmux set-option -g @sentinel-orig-ws-format "$current_ws_fmt"
-        tmux set-option -g window-status-format "#{?@window_waiting,${waiting_icon} ,}${current_ws_fmt}"
+        new_ws_fmt=$(echo "$current_ws_fmt" | sed "s/#W/#{?@window_waiting,${waiting_marker} #W,#W}/g")
+        tmux set-option -g window-status-format "$new_ws_fmt"
+    fi
+
+    current_wsc_fmt=$(tmux show-option -gv window-status-current-format 2>/dev/null)
+    if ! echo "$current_wsc_fmt" | grep -q "@window_waiting"; then
+        new_wsc_fmt=$(echo "$current_wsc_fmt" | sed "s/#W/#{?@window_waiting,${waiting_marker} #W,#W}/g")
+        tmux set-option -g window-status-current-format "$new_wsc_fmt"
     fi
 fi
 
@@ -93,22 +101,23 @@ case "$auto_mode" in
         ;;
     interval)
         "$CURRENT_DIR/scripts/watch-panes.sh" "$auto_interval" </dev/null >/dev/null 2>&1 &
-        disown
+        disown 2>/dev/null
         ;;
     focus+interval|both)
         tmux set-hook -g "$hook_name" "run-shell '$CURRENT_DIR/scripts/on-focus.sh'"
         "$CURRENT_DIR/scripts/watch-panes.sh" "$auto_interval" </dev/null >/dev/null 2>&1 &
-        disown
+        disown 2>/dev/null
         ;;
     off|*)
         tmux set-hook -gu "$hook_name" 2>/dev/null
         ;;
 esac
 
-# ─── Input-waiting detection daemon ───
-# Periodically scans all panes and sets @pane_waiting / @window_waiting flags
+# ─── Input-waiting detection ───
+# Detection is driven by Claude Code hooks (Stop, UserPromptSubmit, Notification)
+# via scripts/sentinel-hook.sh — no background daemon needed.
+# Stop any leftover daemon from previous versions.
 if [ "$waiting_mode" != "off" ]; then
-    # Stop any existing waiting daemon
     old_waiting_pid=$(tmux show-environment -g SENTINEL_WAITING_PID 2>/dev/null | cut -d= -f2)
     if [ -n "$old_waiting_pid" ] && [ "$old_waiting_pid" != "-SENTINEL_WAITING_PID" ]; then
         kill "$old_waiting_pid" 2>/dev/null
@@ -118,9 +127,6 @@ if [ "$waiting_mode" != "off" ]; then
     # Enable bell monitoring for cross-window alerts
     tmux set-option -g monitor-bell on
     tmux set-option -g bell-action other
-
-    "$CURRENT_DIR/scripts/watch-waiting.sh" "$waiting_interval" </dev/null >/dev/null 2>&1 &
-    disown
 fi
 
 # Register the plugin directory for programmatic access
